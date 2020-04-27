@@ -10,10 +10,16 @@ class Messages extends React.Component {
 
     state={
         messagesRef: firebase.database().ref('messages'),
+        privateMessagesRef: firebase.database().ref('privateMessages'),
         user: this.props.currentUser,
         channel: this.props.currentChannel,
+        privateChannel: this.props.isPrivateChannel,
         messages: [],
-        messagesLoading: true
+        messagesLoading: true,
+        numUniqueUsers: '',
+        searchTerm: '',
+        searchLoading : false,
+        searchResults:[]
     }
 
 
@@ -31,15 +37,51 @@ class Messages extends React.Component {
     
       addMessageListener = channelId => {
         let loadedMessages = [];
-        this.state.messagesRef.child(channelId).on("child_added", snap => {
+        const ref = this.getMessagesRef()
+        ref.child(channelId).on("child_added", snap => {
           loadedMessages.push(snap.val());
           this.setState({
             messages: loadedMessages,
             messagesLoading: false
           })
+          this.countUniqueUsers(loadedMessages)
         })
       }
 
+    getMessagesRef = () => {
+      const { messagesRef,privateMessagesRef,privateChannel } = this.state
+      return privateChannel ? privateMessagesRef : messagesRef
+    }
+
+    handleSearchChange = e => {
+      this.setState({searchTerm: e.target.value,searchLoading:true},()=>{
+        this.handleSearchMessages()
+      })
+    }
+
+    handleSearchMessages = () => {
+      const channelMessages = [...this.state.messages]
+      const regex = new RegExp(this.state.searchTerm,'gi')
+      const searchResults = channelMessages.reduce((acc,message)=>{
+        if((message.content && message.content.match(regex)) || message.user.name.match(regex) ) 
+          acc.push(message)
+        return acc
+      },[]) 
+      this.setState({searchResults})
+      setTimeout(()=>this.setState({searchLoading:false}),500) 
+    }
+
+    countUniqueUsers = messages => {
+      const uniqueUsers = messages.reduce((acc,message)=>{
+        if(!acc.includes(message.user.name)){
+          acc.push(message.user.name)
+        }
+        return acc
+      },[])
+      const sumOfUniqueUsers = uniqueUsers.length
+      const numUniqueUsers = (sumOfUniqueUsers > 1 || sumOfUniqueUsers===0) ? `${sumOfUniqueUsers} users` : `${sumOfUniqueUsers} user` 
+      this.setState({numUniqueUsers})
+    }
 
 
     displayMessages = messages => (
@@ -48,17 +90,38 @@ class Messages extends React.Component {
         ))
     )
 
+    displayChannelName = channel => {
+      return channel ? `${this.state.privateChannel ? '@' : '#'}${channel.name}` : ''
+    }
+
     render(){
-        const {messages,messagesRef,channel,user} = this.state
+        const {messages,
+              messagesRef,
+              channel,
+              user,
+              numUniqueUsers,
+              searchTerm,
+              searchResults,
+              searchLoading,
+              privateChannel} = this.state
         return (
             <React.Fragment>
-                <MessagesHeader/>
+                <MessagesHeader 
+                    channelName={this.displayChannelName(channel)}
+                    numUniqueUsers={numUniqueUsers}
+                    handleSearchChange={this.handleSearchChange}
+                    searchLoading={searchLoading}
+                    isPrivateChannel={privateChannel}/>
                 <Segment>
                     <Comment.Group className="messages">
-                        {this.displayMessages(messages)}
+                        {searchTerm ? this.displayMessages(searchResults) : this.displayMessages(messages)}
                     </Comment.Group>
                 </Segment>
-                <MessageForm messagesRef={messagesRef} currentChannel={channel} currentUser={user}/>
+                <MessageForm messagesRef={messagesRef}
+                             currentChannel={channel} 
+                             currentUser={user}
+                             isPrivateChannel={privateChannel}
+                             getMessagesRef={this.getMessagesRef}/>
             </React.Fragment>
         )
     }
